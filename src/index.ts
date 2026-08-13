@@ -1,17 +1,17 @@
 /**
- * @langgraph/adapter-express
+ * @langgraph-toolkit/adapter-express
  *
  * Thin Express binding: an SSE middleware plus a router that exposes
  * compiled graphs at {path}/stream (SSE) and {path}/run (JSON).
  *
- * Install: npm install express @langgraph/adapter-express
+ * Install: npm install express @langgraph-toolkit/adapter-express
  * Peer: express
  */
 import type { NextFunction, Request, Response, Router } from "express";
 import express from "express";
-import type { JsonObject, JsonValue, StepEvent } from "@langgraph/toolkit";
-import { GraphRuntimeError } from "@langgraph/toolkit";
-import type { GraphRegistry } from "@langgraph/toolkit";
+import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import { GraphRuntimeError } from "@langgraph-toolkit/core";
+import type { GraphRegistry } from "@langgraph-toolkit/core";
 
 /** Options for langgraphRouter(); apiKey optionally guards both endpoints. */
 export interface LangGraphExpressOptions {

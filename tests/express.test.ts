@@ -7,7 +7,7 @@ import {
   safety,
   GraphRegistry,
   messagesValue,
-} from "@langgraph/toolkit";
+} from "@langgraph-toolkit/core";
 import { langgraphRouter, sseMiddleware } from "../src/index.js";
 
 interface State {
