@@ -2,36 +2,31 @@
  * @langgraph-toolkit/adapter-express
  *
  * Thin Express binding: an SSE middleware plus a router that exposes
- * compiled graphs at {path}/stream (SSE) and {path}/run (JSON).
- *
- * Install: npm install express @langgraph-toolkit/adapter-express
- * Peer: express
+ * registered graphs at {path}/stream (SSE) and {path}/run (JSON).
  */
 import type { NextFunction, Request, Response, Router } from "express";
 import express from "express";
-import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import type { GraphRegistry, JsonObject, JsonValue, StepEvent, ToolkitRuntime } from "@langgraph-toolkit/core";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
-import type { GraphRegistry } from "@langgraph-toolkit/core";
 
 /** Options for langgraphRouter(); apiKey optionally guards both endpoints. */
 export interface LangGraphExpressOptions {
-  /** Named registry holding the graphs this router exposes. */
-  graphs: GraphRegistry;
+  /** Runtime facade holding the graphs this router exposes. */
+  readonly runtime?: ToolkitRuntime;
+  /** Backward-compatible registry option. */
+  readonly graphs?: GraphRegistry;
   /** Route pattern, e.g. "/agents/:name/run". */
-  path: string;
+  readonly path: string;
   /** Require an API key header? Pass a validator or string key. */
-  apiKey?: string | ((key: string) => boolean);
+  readonly apiKey?: string | ((key: string) => boolean);
 }
 
 /** Shared SSE write handle for host frameworks that stream StepEvents. */
 export interface SseContext {
-  writeEvent(type: string, data: JsonValue): void;
+  readonly writeEvent: (type: string, data: JsonValue) => void;
 }
 
-/**
- * SSE middleware: sets headers once per request lifecycle. Mount before the
- * langgraphRouter so /stream responses carry the correct SSE headers.
- */
+/** Set SSE headers before registering the graph router. */
 export function sseMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (req.path.endsWith("/stream")) {
     res.setHeader("Content-Type", "text/event-stream");
@@ -54,34 +49,38 @@ function validateApiKey(req: Request, apiKey?: LangGraphExpressOptions["apiKey"]
   return apiKey(String(key ?? ""));
 }
 
-/**
- * Register graph endpoints under the given path pattern.
- *   GET  {path}/stream  -> SSE step events
- *   POST {path}/run     -> JSON run result
- */
+function resolveGraphs(options: LangGraphExpressOptions): GraphRegistry {
+  const graphs = options.runtime ?? options.graphs;
+  if (graphs === undefined) throw new GraphRuntimeError("langgraphRouter requires runtime or graphs.");
+  return graphs;
+}
+
+/** Register JSON run and SSE stream endpoints for named graphs. */
 export function langgraphRouter(options: LangGraphExpressOptions): Router {
   const router: Router = express.Router();
   const base = options.path.replace(/\/(run|stream)$/, "");
+  const graphs = resolveGraphs(options);
+  const collectionPath = base.endsWith("/:name") ? base.slice(0, -"/:name".length) : base;
+
+  router.get(collectionPath, (_req: Request, res: Response) => {
+    res.json(graphs.list());
+  });
 
   router.post(`${base}/run`, async (req: Request, res: Response) => {
     if (!validateApiKey(req, options.apiKey)) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    const name = req.params.name;
-    const compiled = options.graphs.get(name);
-    if (!compiled) {
+    const name = typeof req.params.name === "string" ? req.params.name : "";
+    if (!graphs.has(name)) {
       res.status(404).json({ error: `Graph "${name}" not registered` });
       return;
     }
     try {
-      // Cancellation only when the CLIENT disconnects (Rule L2): bind to the
-      // request abort event, NOT the response close event (which fires on
-      // every normal send and would falsely cancel a long run).
       const controller = new AbortController();
       req.on("aborted", () => controller.abort());
       const body = (req.body ?? {}) as JsonObject;
-      const result = await compiled.run(body, {
+      const result = await graphs.run(name, body, {
         threadId: typeof body.threadId === "string" ? body.threadId : undefined,
         signal: controller.signal,
       });
@@ -96,15 +95,14 @@ export function langgraphRouter(options: LangGraphExpressOptions): Router {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    const name = req.params.name;
-    const compiled = options.graphs.get(name);
-    if (!compiled) {
+    const name = typeof req.params.name === "string" ? req.params.name : "";
+    if (!graphs.has(name)) {
       res.status(404).json({ error: `Graph "${name}" not registered` });
       return;
     }
     try {
       const input = typeof req.query.input === "string" ? parseJsonObject(req.query.input) : {};
-      const events = compiled.stream(input, {
+      const events = graphs.stream(name, input, {
         threadId: typeof req.query.threadId === "string" ? req.query.threadId : undefined,
         signal: abortSignalFromResponse(res),
       });
@@ -122,11 +120,6 @@ export function langgraphRouter(options: LangGraphExpressOptions): Router {
   return router;
 }
 
-/**
- * Convert a response close event into an AbortSignal so the graph can cancel
- * when the client drops the SSE connection (Rule L2). Only the /stream
- * handler uses this; /run binds to the request abort event instead.
- */
 function abortSignalFromResponse(res: Response): AbortSignal {
   const controller = new AbortController();
   res.on("close", () => controller.abort());
