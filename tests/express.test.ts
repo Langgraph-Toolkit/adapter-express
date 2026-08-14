@@ -5,9 +5,9 @@ import {
   node,
   edge,
   safety,
-  GraphRegistry,
   messagesValue,
 } from "@langgraph-toolkit/core";
+import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
 import { langgraphRouter, sseMiddleware } from "../src/index.js";
 
 interface State {

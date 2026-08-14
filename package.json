@@ -1,6 +1,6 @@
 {
   "name": "@langgraph-toolkit/adapter-express",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Express binding for @langgraph-toolkit/core: SSE middleware and graph router.",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@langgraph-toolkit/core": "0.1.2"
+    "@langgraph-toolkit/core": "0.2.0"
   },
   "peerDependencies": {
     "express": "^4 || ^5"

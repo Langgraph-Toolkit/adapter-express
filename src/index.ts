@@ -6,7 +6,8 @@
  */
 import type { NextFunction, Request, Response, Router } from "express";
 import express from "express";
-import type { GraphRegistry, JsonObject, JsonValue, StepEvent, ToolkitRuntime } from "@langgraph-toolkit/core";
+import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import type { GraphRegistry, ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
 
 /** Options for langgraphRouter(); apiKey optionally guards both endpoints. */
