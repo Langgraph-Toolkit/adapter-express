@@ -6,8 +6,9 @@
  */
 import type { NextFunction, Request, Response, Router } from "express";
 import express from "express";
-import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
-import type { GraphRegistry, ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
+import type { CompiledGraph, GraphDefinition, JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
+import { ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
 
 /** Options for langgraphRouter(); apiKey optionally guards both endpoints. */
@@ -25,6 +26,19 @@ export interface LangGraphExpressOptions {
 /** Shared SSE write handle for host frameworks that stream StepEvents. */
 export interface SseContext {
   readonly writeEvent: (type: string, data: JsonValue) => void;
+}
+
+/** Zero-config options for createExpressAdapter(). */
+export interface ExpressAdapterOptions extends Omit<LangGraphExpressOptions, "graphs" | "runtime" | "path"> {
+  readonly path?: string;
+}
+
+/** Express resource returned by createExpressAdapter(). */
+export interface ExpressAdapter<TGraph extends object = object> {
+  readonly graph: TGraph;
+  readonly runtime: GraphRegistry;
+  readonly router: Router;
+  readonly middleware: typeof sseMiddleware;
 }
 
 /** Set SSE headers before registering the graph router. */
@@ -139,6 +153,50 @@ function parseJsonObject(value: string): JsonObject {
 
 export function encodeStepEvent(event: StepEvent): string {
   return encodeSse(event.type, event);
+}
+
+/**
+ * Create an Express-ready graph resource from one compiled graph, builder,
+ * registry, or runtime. Existing langgraphRouter() remains available when a
+ * host needs complete route-level control.
+ */
+export function createExpressAdapter<TGraph extends object>(graph: TGraph, options: ExpressAdapterOptions = {}): ExpressAdapter<TGraph> {
+  const runtime = normalizeGraph(graph);
+  return {
+    graph,
+    runtime,
+    router: langgraphRouter({
+      graphs: runtime,
+      path: options.path ?? "/agents/:name",
+      apiKey: options.apiKey,
+    }),
+    middleware: sseMiddleware,
+  };
+}
+
+function normalizeGraph<TGraph extends object>(graph: TGraph): GraphRegistry {
+  if (graph instanceof ToolkitRuntime) return graph;
+  const runtime = new GraphRegistry();
+  const source = graph as object;
+  const collection = source as { readonly list?: () => string[]; readonly get?: (name: string) => CompiledGraph<object> | undefined };
+  if (typeof collection.list === "function" && typeof collection.get === "function") {
+    for (const name of collection.list()) {
+      const compiled = collection.get(name);
+      if (compiled && !runtime.has(compiled.name)) runtime.add(compiled);
+    }
+    return runtime;
+  }
+  const executable = source as { readonly name?: string; readonly definition?: GraphDefinition<object>; readonly run?: (input: object) => Promise<object>; readonly stream?: (input: object) => AsyncIterable<object> };
+  if (typeof executable.name === "string" && executable.definition !== undefined && typeof executable.run === "function" && typeof executable.stream === "function") {
+    runtime.add(graph as CompiledGraph<object>);
+    return runtime;
+  }
+  const builder = source as { readonly build?: () => CompiledGraph<object> };
+  if (typeof builder.build === "function") {
+    runtime.add(builder.build());
+    return runtime;
+  }
+  throw new GraphRuntimeError("createExpressAdapter requires a compiled graph, graph builder, runtime, or registry.");
 }
 
 export { GraphRuntimeError };

@@ -6,9 +6,9 @@ import {
   edge,
   safety,
   messagesValue,
-} from "@langgraph-toolkit/core";
+} from "@langgraph-toolkit/core/legacy";
 import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
-import { langgraphRouter, sseMiddleware } from "../src/index.js";
+import { createExpressAdapter, langgraphRouter, sseMiddleware } from "../src/index.js";
 
 interface State {
   messages: unknown[];
@@ -101,5 +101,12 @@ describe("adapter-express", () => {
     const app = buildApp(makeRegistry(), "secret");
     const res = await request(app, "POST", "/agents/ping/run", {});
     expect(res.status).toBe(401);
+  });
+
+  it("creates a zero-config resource from an existing registry", () => {
+    const adapter = createExpressAdapter(makeRegistry());
+    expect(adapter.runtime.list()).toEqual(["ping"]);
+    expect(typeof adapter.router).toBe("function");
+    expect(adapter.middleware).toBe(sseMiddleware);
   });
 });
